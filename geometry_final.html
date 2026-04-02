@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geometry Dash Final</title>
+    <style>
+        /* CORE LAYOUT */
+        body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+
+        /* UI OVERLAY SYSTEM */
+        .screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at center, #005c97, #363795);
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 100;
+        }
+        .active { display: flex !important; }
+
+        /* ELEMENTS */
+        .logo-img { 
+            height: 100px; margin-bottom: 40px; 
+            filter: drop-shadow(0 0 20px rgba(255,255,255,0.5)); 
+            animation: float 3s infinite ease-in-out;
+        }
+        
+        /* Fallback Logo Text */
+        .logo-text {
+            font-size: 60px; color: #FFEB3B; font-weight: 900; font-style: italic;
+            text-shadow: 5px 5px 0 #000; margin-bottom: 40px; display: none;
+        }
+
+        button {
+            background: #222; color: #fff; border: 3px solid #fff;
+            padding: 15px 40px; font-size: 24px; font-weight: bold;
+            cursor: pointer; margin: 10px; border-radius: 12px;
+            box-shadow: 0 5px 0 #000; transition: transform 0.1s;
+        }
+        button:active { transform: translateY(5px); box-shadow: none; }
+
+        .btn-play { background: #4CAF50; font-size: 40px; padding: 30px 80px; border-color: #81C784; }
+        .btn-icon { background: #FF9800; border-color: #FFCC80; }
+        .btn-back { position: absolute; top: 20px; left: 20px; background: #F44336; font-size: 18px; padding: 10px 20px; }
+
+        /* LEVEL GRID */
+        .grid { display: flex; gap: 20px; justify-content: center; }
+        .level-box {
+            width: 200px; height: 150px; background: rgba(0,0,0,0.5);
+            border: 4px solid #fff; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; cursor: pointer;
+            transition: 0.2s;
+        }
+        .level-box:hover { background: rgba(255,255,255,0.2); transform: scale(1.05); }
+
+        /* COLOR PICKER */
+        .colors { display: flex; gap: 5px; margin: 10px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 10px; }
+        .swatch { width: 40px; height: 40px; border: 2px solid #fff; cursor: pointer; transition: 0.2s; }
+        .swatch:hover { transform: scale(1.2); z-index: 10; }
+
+        /* HUD */
+        #hud { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .progress-track {
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+            width: 60%; height: 15px; background: rgba(0,0,0,0.5); border: 2px solid #fff;
+        }
+        .progress-fill { width: 0%; height: 100%; background: #00FF00; }
+        .pause-btn { pointer-events: auto; position: absolute; top: 20px; right: 20px; width: 50px; height: 50px; font-size: 20px; padding: 0; }
+
+        @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-15px)} }
+    </style>
+</head>
+<body>
+
+    <!-- CANVAS -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- UI: MAIN MENU -->
+    <div id="menu-main" class="screen active">
+        <!-- Logo attempts to load image, falls back to text if missing -->
+        <img src="logo.png" class="logo-img" onerror="this.style.display='none'; document.querySelector('.logo-text').style.display='block'">
+        <div class="logo-text">GEOMETRY DASH</div>
+        
+        <button class="btn-play" onclick="toScreen('menu-levels')">PLAY</button>
+        
+        <div class="grid">
+            <button class="btn-icon" onclick="toScreen('menu-icons')">ICON KIT</button>
+            <button class="btn-icon" onclick="window.open('https://github.com')">GITHUB</button>
+        </div>
+    </div>
+
+    <!-- UI: LEVEL SELECT -->
+    <div id="menu-levels" class="screen">
+        <h1 style="color:white; font-size: 40px; margin-bottom: 40px;">SELECT LEVEL</h1>
+        <div class="grid">
+            <div class="level-box" onclick="startLevel(0)">
+                <h2 style="color:#4CAF50; margin:0">STEREO</h2>
+                <h3 style="color:white; margin:0">EASY</h3>
+            </div>
+            <div class="level-box" onclick="startLevel(1)">
+                <h2 style="color:#FF9800; margin:0">BACK ON</h2>
+                <h3 style="color:white; margin:0">NORMAL</h3>
+            </div>
+            <div class="level-box" onclick="startLevel(2)">
+                <h2 style="color:#F44336; margin:0">POLAR</h2>
+                <h3 style="color:white; margin:0">HARD</h3>
+            </div>
+        </div>
+        <button class="btn-back" onclick="toScreen('menu-main')">BACK</button>
+    </div>
+
+    <!-- UI: ICON KIT -->
+    <div id="menu-icons" class="screen">
+        <h1 style="color:white">ICON KIT</h1>
+        <canvas id="previewCanvas" width="100" height="100" style="border: 4px solid #fff; margin-bottom: 20px; background: #222;"></canvas>
+        
+        <div style="color:white">BODY COLOR</div>
+        <div class="colors" id="c1-row"></div>
+        
+        <div style="color:white">DETAIL COLOR</div>
+        <div class="colors" id="c2-row"></div>
+
+        <button class="btn-back" onclick="toScreen('menu-main')">BACK</button>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud">
+        <div class="progress-track"><div class="progress-fill" id="p-fill"></div></div>
+        <button class="pause-btn" onclick="quitGame()">||</button>
+    </div>
+
+    <script>
+        // --- ENGINE VARIABLES ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let state = "MENU"; // MENU, PLAYING, DEAD
+        let player = { x: 0, y: 0, dy: 0, ang: 0, ground: false };
+        let levelData = [];
+        let cameraX = 0;
+        let floorY = 0;
+        
+        // Physics
+        const GRAVITY = 0.65;
+        const JUMP = -10.5;
+        const SPEED = 6;
+        const TILE = 50;
+
+        // Skin
+        let skin = { c1: '#FFFF00', c2: '#0000FF' };
+        const COLORS = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#00FFFF', '#FF00FF', '#FFFFFF', '#333333'];
+
+        // --- INITIALIZATION ---
+        window.onload = () => {
+            resize();
+            setupKit();
+            gameLoop();
+        };
+        window.onresize = resize;
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            floorY = canvas.height - 150; // Floor position
+            if(state === 'MENU') drawMenuBG();
+        }
+
+        // --- MENU SYSTEM ---
+        // Global function for HTML buttons
+        window.toScreen = function(id) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            state = "MENU";
+        }
+
+        function setupKit() {
+            const c1Row = document.getElementById('c1-row');
+            const c2Row = document.getElementById('c2-row');
+            
+            COLORS.forEach(c => {
+                let b1 = document.createElement('div');
+                b1.className = 'swatch'; b1.style.background = c;
+                b1.onclick = () => { skin.c1 = c; drawPreview(); };
+                c1Row.appendChild(b1);
+
+                let b2 = document.createElement('div');
+                b2.className = 'swatch'; b2.style.background = c;
+                b2.onclick = () => { skin.c2 = c; drawPreview(); };
+                c2Row.appendChild(b2);
+            });
+            drawPreview();
+        }
+
+        function drawPreview() {
+            const pCtx = document.getElementById('previewCanvas').getContext('2d');
+            pCtx.clearRect(0,0,100,100);
+            drawIcon(pCtx, 50, 50, 40, 0);
+        }
+
+        // --- GAME LOGIC ---
+        window.startLevel = function(diff) {
+            // Generate Level
+            levelData = [];
+            // Safe start
+            for(let i=0; i<15; i++) levelData.push(0);
+            
+            // Procedural Generation
+            for(let i=0; i<300; i++) {
+                let r = Math.random();
+                let d = (diff + 1) * 0.12; // Difficulty multiplier
+                
+                if(r < d) levelData.push(1); // Block
+                else if(r < d + 0.05) levelData.push(2); // Spike
+                else levelData.push(0); // Air
+            }
+            // End pad
+            for(let i=0; i<20; i++) levelData.push(0);
+
+            // Reset Player
+            player.x = 200; 
+            player.y = floorY - 40; 
+            player.dy = 0; 
+            player.ang = 0; 
+            cameraX = 0;
+            
+            // Switch UI
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById('hud').style.display = 'block';
+            state = "PLAYING";
+        }
+
+        window.quitGame = function() {
+            state = "MENU";
+            document.getElementById('hud').style.display = 'none';
+            toScreen('menu-main');
+        }
+
+        // Controls
+        window.onkeydown = (e) => { if(e.code === 'Space' || e.code === 'ArrowUp') jump(); };
+        window.onmousedown = jump;
+
+        function jump() {
+            if(state === 'PLAYING' && player.ground) {
+                player.dy = JUMP;
+                player.ground = false;
+            }
+        }
+
+        // --- MAIN LOOP ---
+        function gameLoop() {
+            // Clear
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if(state === "PLAYING") {
+                // 1. Physics
+                player.dy += GRAVITY;
+                player.y += player.dy;
+
+                if(player.y > floorY - 40) { // Land
+                    player.y = floorY - 40;
+                    player.dy = 0;
+                    player.ground = true;
+                    player.ang = Math.round(player.ang/90)*90;
+                } else { // Air
+                    player.ground = false;
+                    player.ang += 6;
+                }
+
+                player.x += SPEED;
+                cameraX = player.x - 300;
+
+                // 2. Draw Environment
+                drawMenuBG(); // Background
+                
+                // Floor
+                ctx.fillStyle = "#000";
+                ctx.fillRect(0, floorY, canvas.width, canvas.height - floorY);
+                ctx.strokeStyle = "#FFF";
+                ctx.beginPath(); ctx.moveTo(0, floorY); ctx.lineTo(canvas.width, floorY); ctx.stroke();
+
+                // 3. Render Level & Collision
+                let startCol = Math.floor(cameraX / TILE);
+                let endCol = startCol + (canvas.width / TILE) + 1;
+
+                for(let i = startCol; i < endCol; i++) {
+                    let type = levelData[i];
+                    if(!type) continue;
+
+                    let tx = (i * TILE) - cameraX;
+                    let ty = floorY - TILE;
+
+                    if(type === 1) { // Block
+                        ctx.fillStyle = "#000"; ctx.fillRect(tx, ty, TILE, TILE);
+                        ctx.strokeStyle = "#0FF"; ctx.strokeRect(tx, ty, TILE, TILE);
+                        
+                        // Block Collision
+                        if(checkHit(player.x, player.y, 40, 40, i * TILE, ty, TILE, TILE)) die();
+                    }
+                    if(type === 2) { // Spike
+                        ctx.beginPath(); ctx.moveTo(tx, ty+TILE); ctx.lineTo(tx+TILE/2, ty); ctx.lineTo(tx+TILE, ty+TILE);
+                        ctx.fillStyle = "#000"; ctx.fill(); ctx.strokeStyle = "#FFF"; ctx.stroke();
+
+                        // Spike Collision (Smaller Hitbox)
+                        if(checkHit(player.x+10, player.y+10, 20, 20, i * TILE + 10, ty + 10, 30, 40)) die();
+                    }
+                }
+
+                // 4. Draw Player
+                drawIcon(ctx, player.x - cameraX + 20, player.y + 20, 40, player.ang);
+
+                // 5. HUD
+                let pct = (player.x / (levelData.length * TILE)) * 100;
+                document.getElementById('p-fill').style.width = Math.min(100, pct) + '%';
+                if(pct >= 100) { alert("LEVEL COMPLETE!"); quitGame(); }
+
+            } else {
+                drawMenuBG();
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Helpers
+        function drawMenuBG() {
+            let g = ctx.createLinearGradient(0,0,0,canvas.height);
+            g.addColorStop(0, "#141E30"); g.addColorStop(1, "#243B55");
+            ctx.fillStyle = g; ctx.fillRect(0,0,canvas.width,canvas.height);
+        }
+
+        function drawIcon(c, x, y, s, r) {
+            c.save();
+            c.translate(x, y);
+            c.rotate(r * Math.PI / 180);
+            c.fillStyle = skin.c1; c.fillRect(-s/2, -s/2, s, s);
+            c.strokeStyle = "#000"; c.lineWidth = 2; c.strokeRect(-s/2, -s/2, s, s);
+            c.fillStyle = skin.c2; c.fillRect(-s/4, -s/4, s/2, s/2);
+            c.restore();
+        }
+
+        function checkHit(x1, y1, w1, h1, x2, y2, w2, h2) {
+            return x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2;
+        }
+
+        function die() {
+            state = "DEAD";
+            ctx.fillStyle = "#FFF"; ctx.fillRect(0,0,canvas.width, canvas.height);
+            setTimeout(() => {
+                player.x = 200; player.y = floorY - 40; player.dy = 0; player.ang = 0; cameraX = 0;
+                state = "PLAYING";
+            }, 100);
+        }
+    </script>
+</body>
+</html>
