@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Geometry Dash Final</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        /* --- CRITICAL STYLES --- */
+        body { margin: 0; background-color: #000; color: white; font-family: sans-serif; overflow: hidden; user-select: none; }
+        canvas { display: block; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+        
+        /* UI LAYER */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; }
+        
+        /* SCREENS */
+        .screen { 
+            display: none; position: absolute; width: 100%; height: 100%; 
+            background: linear-gradient(to bottom, #005c97, #363795);
+            flex-direction: column; align-items: center; justify-content: center;
+            pointer-events: auto;
+        }
+        .active { display: flex !important; }
+
+        /* COMPONENTS */
+        img.logo { max-width: 600px; width: 90%; margin-bottom: 20px; animation: float 3s infinite; }
+        
+        button {
+            background: #111; border: 3px solid #fff; color: #fff;
+            font-size: 20px; font-weight: bold; padding: 15px 30px;
+            cursor: pointer; margin: 10px; border-radius: 10px;
+            box-shadow: 0 4px 0 #000; transition: 0.1s;
+        }
+        button:active { transform: translateY(4px); box-shadow: 0 0 0 #000; }
+        
+        .btn-play { background: #4CAF50; font-size: 30px; padding: 20px 60px; }
+        .btn-back { background: #F44336; position: absolute; top: 20px; left: 20px; }
+        
+        /* LEVEL SELECT */
+        .grid { display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; }
+        .card {
+            background: rgba(0,0,0,0.5); border: 2px solid #fff; width: 160px; height: 120px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            cursor: pointer; border-radius: 10px;
+        }
+        .card:hover { background: rgba(255,255,255,0.2); transform: scale(1.05); }
+
+        /* HUD */
+        #hud { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .bar-box { 
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+            width: 60%; height: 15px; background: rgba(0,0,0,0.5); border: 2px solid #fff; 
+        }
+        #progress { width: 0%; height: 100%; background: #00ff00; }
+        
+        @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-15px)} }
+    </style>
+</head>
+<body>
+
+    <!-- CANVAS -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- UI OVERLAY -->
+    <div id="ui-layer">
+        
+        <!-- MENU -->
+        <div id="menu" class="screen active">
+            <img src="logo.png" class="logo" alt="GEOMETRY DASH" onerror="this.style.display='none'; document.getElementById('alt-logo').style.display='block'">
+            <h1 id="alt-logo" style="display:none; font-size:50px; color:#FFEB3B; text-shadow: 3px 3px #000;">GEOMETRY DASH</h1>
+            
+            <button class="btn-play" onclick="toScreen('levels')">PLAY</button>
+            <div>
+                <button onclick="toScreen('skins')">Icon Kit</button>
+                <button onclick="window.open('https://github.com')">GitHub</button>
+            </div>
+        </div>
+
+        <!-- LEVELS -->
+        <div id="levels" class="screen">
+            <h1>SELECT LEVEL</h1>
+            <div class="grid">
+                <div class="card" onclick="play(0)">
+                    <h3 style="color:#4CAF50; margin:0">STEREO</h3>
+                    <small>EASY</small>
+                </div>
+                <div class="card" onclick="play(1)">
+                    <h3 style="color:#FF9800; margin:0">BACK ON</h3>
+                    <small>NORMAL</small>
+                </div>
+                <div class="card" onclick="play(2)">
+                    <h3 style="color:#F44336; margin:0">POLAR</h3>
+                    <small>HARD</small>
+                </div>
+            </div>
+            <button class="btn-back" onclick="toScreen('menu')">BACK</button>
+        </div>
+
+        <!-- SKINS -->
+        <div id="skins" class="screen">
+            <h1>ICON KIT</h1>
+            <canvas id="preview" width="100" height="100" style="background:#222; border:2px solid #fff; margin-bottom:10px;"></canvas>
+            <div style="margin-bottom:10px">
+                <button style="background:#FFFF00; width:30px; height:30px; padding:0;" onclick="setColor(1, '#FFFF00')"></button>
+                <button style="background:#FF0000; width:30px; height:30px; padding:0;" onclick="setColor(1, '#FF0000')"></button>
+                <button style="background:#00FF00; width:30px; height:30px; padding:0;" onclick="setColor(1, '#00FF00')"></button>
+                <button style="background:#00FFFF; width:30px; height:30px; padding:0;" onclick="setColor(1, '#00FFFF')"></button>
+            </div>
+            <button class="btn-back" onclick="toScreen('menu')">BACK</button>
+        </div>
+
+        <!-- HUD -->
+        <div id="hud">
+            <div class="bar-box"><div id="progress"></div></div>
+            <button class="btn-back" style="width:50px; padding:10px" onclick="quit()">||</button>
+        </div>
+
+    </div>
+
+    <script>
+        // --- ENGINE ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let state = "MENU"; 
+        let p = { x: 0, y: 0, dy: 0, ang: 0, ground: false };
+        let level = [];
+        let camX = 0, floorY = 0;
+        
+        // Skin
+        let skin = { c1: '#FFFF00', c2: '#0000FF' };
+
+        // Physics Config
+        const G = 0.6, JUMP = -10.5, SPEED = 6, TILE = 50;
+
+        // Init
+        window.onload = () => { resize(); drawPreview(); loop(); };
+        window.onresize = resize;
+        
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            floorY = canvas.height - 120;
+        }
+
+        // UI Logic
+        window.toScreen = (id) => {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            state = "MENU";
+        };
+
+        window.setColor = (slot, col) => {
+            if(slot === 1) skin.c1 = col;
+            drawPreview();
+        };
+
+        function drawPreview() {
+            let c = document.getElementById('preview').getContext('2d');
+            c.clearRect(0,0,100,100);
+            drawIcon(c, 50, 50, 40, 0);
+        }
+
+        // Game Logic
+        window.play = (diff) => {
+            level = [];
+            for(let i=0; i<15; i++) level.push(0); // Start Safe
+            
+            // Procedural Generator
+            for(let i=0; i<300; i++) {
+                let r = Math.random();
+                let d = (diff+1) * 0.12;
+                if(r < d) level.push(1); // Block
+                else if(r < d + 0.05) level.push(2); // Spike
+                else level.push(0);
+            }
+            
+            p = { x: 200, y: floorY - 40, dy: 0, ang: 0, ground: true };
+            camX = 0;
+            
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById('hud').style.display = 'block';
+            state = "PLAYING";
+        };
+
+        window.quit = () => {
+            state = "MENU";
+            document.getElementById('hud').style.display = 'none';
+            toScreen('menu');
+        };
+
+        // Controls
+        window.onmousedown = () => { if(state === 'PLAYING' && p.ground) { p.dy = JUMP; p.ground = false; } };
+        window.onkeydown = (e) => { if((e.code==='Space'||e.code==='ArrowUp') && state === 'PLAYING' && p.ground) { p.dy = JUMP; p.ground = false; } };
+
+        function loop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if(state === "PLAYING") {
+                // Physics
+                p.dy += G; 
+                p.y += p.dy;
+                p.x += SPEED;
+                camX = p.x - 300;
+
+                if(p.y > floorY - 40) {
+                    p.y = floorY - 40; p.dy = 0; p.ground = true;
+                    p.ang = Math.round(p.ang / 90) * 90;
+                } else {
+                    p.ground = false; p.ang += 5;
+                }
+
+                // Draw World
+                let bg = ctx.createLinearGradient(0,0,0,canvas.height);
+                bg.addColorStop(0, "#111"); bg.addColorStop(1, "#203A43");
+                ctx.fillStyle = bg; ctx.fillRect(0,0,canvas.width,canvas.height);
+
+                ctx.fillStyle = "#000"; ctx.fillRect(0, floorY, canvas.width, canvas.height);
+                ctx.strokeStyle = "#FFF"; ctx.beginPath(); ctx.moveTo(0, floorY); ctx.lineTo(canvas.width, floorY); ctx.stroke();
+
+                // Draw Level
+                let start = Math.floor(camX / TILE);
+                let end = start + (canvas.width / TILE) + 2;
+
+                for(let i=start; i<end; i++) {
+                    let t = level[i];
+                    if(!t) continue;
+                    let x = (i*TILE) - camX;
+                    let y = floorY - TILE;
+
+                    if(t === 1) { // Block
+                        ctx.fillStyle = "#000"; ctx.fillRect(x,y,TILE,TILE);
+                        ctx.strokeStyle = "#0FF"; ctx.strokeRect(x,y,TILE,TILE);
+                        if(check(p.x,p.y,40,40, x+200,y,TILE,TILE)) die();
+                    }
+                    if(t === 2) { // Spike
+                        ctx.fillStyle = "#000"; ctx.beginPath(); 
+                        ctx.moveTo(x,y+TILE); ctx.lineTo(x+25,y); ctx.lineTo(x+50,y+TILE); 
+                        ctx.fill(); ctx.strokeStyle="#FFF"; ctx.stroke();
+                        if(check(p.x+10,p.y+10,20,20, x+200,y+10,30,40)) die();
+                    }
+                }
+
+                drawIcon(ctx, p.x - camX + 20, p.y + 20, 40, p.ang);
+                
+                // Progress
+                let pct = (p.x / (level.length * TILE)) * 100;
+                document.getElementById('progress').style.width = Math.min(100, pct) + '%';
+                if(pct >= 100) { alert("WIN!"); quit(); }
+
+            } else {
+                // Menu Background
+                let bg = ctx.createLinearGradient(0,0,0,canvas.height);
+                bg.addColorStop(0, "#0F2027"); bg.addColorStop(1, "#2C5364");
+                ctx.fillStyle = bg; ctx.fillRect(0,0,canvas.width,canvas.height);
+            }
+            requestAnimationFrame(loop);
+        }
+
+        function drawIcon(c, x, y, s, r) {
+            c.save(); c.translate(x,y); c.rotate(r*Math.PI/180);
+            c.fillStyle = skin.c1; c.fillRect(-s/2,-s/2,s,s);
+            c.strokeStyle="#000"; c.lineWidth=2; c.strokeRect(-s/2,-s/2,s,s);
+            c.fillStyle = skin.c2; c.fillRect(-s/4,-s/4,s/2,s/2);
+            c.restore();
+        }
+
+        function check(x1,y1,w1,h1, x2,y2,w2,h2) {
+            return x1 < x2+w2 && x1+w1 > x2 && y1 < y2+h2 && y1+h1 > y2;
+        }
+
+        function die() {
+            state = "DEAD";
+            ctx.fillStyle = "#FFF"; ctx.fillRect(0,0,canvas.width,canvas.height);
+            setTimeout(() => { 
+                p.x = 200; p.y = floorY - 40; p.dy = 0; p.ang = 0; camX = 0; 
+                state = "PLAYING"; 
+            }, 100);
+        }
+    </script>
+</body>
+</html>
