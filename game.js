@@ -1,235 +1,261 @@
+/* --- SYSTEM SETUP --- */
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const menu = document.getElementById('main-menu');
-const scoreEl = document.getElementById('score-display');
+const previewCanvas = document.getElementById('previewCanvas');
+const pCtx = previewCanvas.getContext('2d');
 
-// --- CONFIGURATION ---
-const GRAVITY = 0.6;
-const JUMP_FORCE = -9.5;
-const SPEED = 5;
-const ROTATION_SPEED = 5;
-const GROUND_Y = 330;
+// Auto-Resize
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
 
-// --- STATE ---
-let gameActive = false;
-let frame = 0;
-let score = 0;
-let attempts = 1;
+/* --- GAME CONFIG --- */
+const GRAVITY = 0.7;
+const JUMP_FORCE = -11;
+const SPEED = 6;
+let floorY = 0; // Calculated per frame based on height
 
-let player = {
-    x: 200, y: 200, w: 30, h: 30,
-    dy: 0, angle: 0, grounded: false, dead: false
+/* --- STATE MANAGEMENT --- */
+let gameState = 'MENU'; // MENU, PLAYING, DEAD
+let currentLevel = [];
+let camX = 0;
+
+// Icon Settings
+let userIcon = {
+    col1: '#FFFF00',
+    col2: '#0000FF',
+    form: 0 // 0=Cube, 1=Creeper, 2=Gradient
 };
 
-// Camera Offset (Follows player)
-let cameraX = 0;
+/* --- ASSETS (Colors) --- */
+const COLORS = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#00FFFF', '#FF00FF', '#FFFFFF', '#333333'];
 
-// Level Data: 0=Air, 1=Block, 2=Spike, 3=Orb(Jump)
-// This array is the "map". You can extend it to make the level longer.
-const levelMap = [
-    0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,2,0,0,
-    0,0,1,1,0,0,2,2,0,0,1,0,0,0,0,2,2,2,0,0,
-    0,0,0,0,1,1,1,0,0,0,2,0,1,0,2,0,1,0,0,0,
-    0,0,0,1,1,1,1,1,0,0,2,2,2,2,0,0,0,0,0,0,
-    1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0 // End Wall
+// Initialize Color Pickers
+function initColorPickers() {
+    const c1 = document.getElementById('col1-swatches');
+    const c2 = document.getElementById('col2-swatches');
+    
+    COLORS.forEach(c => {
+        let s1 = document.createElement('div');
+        s1.className = 'swatch'; s1.style.backgroundColor = c;
+        s1.onclick = () => { userIcon.col1 = c; drawPreview(); };
+        c1.appendChild(s1);
+
+        let s2 = document.createElement('div');
+        s2.className = 'swatch'; s2.style.backgroundColor = c;
+        s2.onclick = () => { userIcon.col2 = c; drawPreview(); };
+        c2.appendChild(s2);
+    });
+    drawPreview();
+}
+
+// Procedural Icon Drawer (Used by Game and Kit)
+function renderIcon(context, x, y, size, angle, c1, c2) {
+    context.save();
+    context.translate(x, y);
+    context.rotate(angle * Math.PI / 180);
+    context.translate(-size/2, -size/2);
+
+    // Base Base
+    context.fillStyle = c1;
+    context.fillRect(0, 0, size, size);
+    context.lineWidth = size/10;
+    context.strokeStyle = '#000';
+    context.strokeRect(0, 0, size, size);
+
+    // Inner Detail (Standard Face)
+    context.fillStyle = c2;
+    context.fillRect(size*0.2, size*0.2, size*0.3, size*0.3); // Left Eye
+    context.fillRect(size*0.6, size*0.2, size*0.2, size*0.6); // Right Stripe
+    
+    context.restore();
+}
+
+function drawPreview() {
+    pCtx.clearRect(0,0,100,100);
+    renderIcon(pCtx, 50, 50, 60, 0, userIcon.col1, userIcon.col2);
+}
+
+/* --- GAMEPLAY VARIABLES --- */
+let player = { x: 0, y: 0, dy: 0, angle: 0, grounded: false };
+
+/* --- LEVEL DATA --- */
+// 0=Air, 1=Block, 2=Spike
+const LEVELS = [
+    // Level 1 (Easy)
+    [0,0,0,0,0,1,0,0,2,0,0,1,1,0,0,2,2,0,0,0,0,1,0,0,1,0,0,2,0,0,0,0,1,1,1,0,2,0,0,1],
+    // Level 2 (Med)
+    [0,0,0,1,0,2,0,1,0,2,0,1,2,1,0,0,0,0,2,2,2,0,1,0,1,0,1,2,0,0,1,2,1,2,0,0,0,0],
+    // Level 3 (Hard)
+    [0,0,0,0,2,0,2,0,1,2,1,2,0,0,0,2,2,0,0,1,1,2,0,2,0,1,0,2,2,2,1,0,0,0,0,1]
 ];
-const TILE_SIZE = 40;
+
+/* --- ENGINE LOOPS --- */
+
+function showScreen(id) {
+    // UI Logic
+    document.querySelectorAll('.menu-screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    
+    if(id === 'menu-icons') initColorPickers();
+    
+    gameState = 'MENU';
+    document.getElementById('hud').classList.add('hidden');
+}
+
+function loadLevel(index) {
+    currentLevel = LEVELS[index];
+    // Pad level with floor
+    while(currentLevel.length < 100) currentLevel.push(0);
+    
+    startGame();
+}
 
 function startGame() {
-    menu.style.display = 'none';
-    canvas.style.display = 'block';
-    resetPlayer();
-    gameActive = true;
-    requestAnimationFrame(gameLoop);
-}
-
-function resetPlayer() {
+    document.querySelectorAll('.menu-screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('hud').classList.remove('hidden');
+    
+    // Reset Physics
+    floorY = canvas.height - 150;
     player.x = 200;
-    player.y = GROUND_Y - 40;
+    player.y = floorY - 50;
     player.dy = 0;
     player.angle = 0;
-    player.dead = false;
     player.grounded = false;
-    cameraX = 0;
-    score = 0;
-    frame = 0;
+    camX = 0;
+    
+    gameState = 'PLAYING';
+    loop();
 }
 
-function die() {
-    player.dead = true;
-    attempts++;
-    
-    // Explosion Effect (Simple Flash)
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    setTimeout(() => {
-        resetPlayer();
-    }, 500);
+function quitGame() {
+    gameState = 'MENU';
+    showScreen('menu-main');
 }
 
-// --- CONTROLS ---
-window.addEventListener('keydown', (e) => {
-    if ((e.code === 'Space' || e.code === 'ArrowUp') && gameActive) {
-        if (player.grounded) {
-            player.dy = JUMP_FORCE;
-            player.grounded = false;
-        }
-    }
-});
-canvas.addEventListener('mousedown', () => {
-    if (gameActive && player.grounded) {
+/* --- INPUT --- */
+window.addEventListener('mousedown', jump);
+window.addEventListener('keydown', (e) => { if(e.code === 'Space' || e.code === 'ArrowUp') jump(); });
+
+function jump() {
+    if (gameState === 'PLAYING' && player.grounded) {
         player.dy = JUMP_FORCE;
         player.grounded = false;
     }
-});
-
-// --- PHYSICS & COLLISION ---
-function checkCollision(rect1, rect2) {
-    return (rect1.x < rect2.x + rect2.w &&
-            rect1.x + rect1.w > rect2.x &&
-            rect1.y < rect2.y + rect2.h &&
-            rect1.y + rect1.h > rect2.y);
 }
 
-function update() {
-    if (!gameActive || player.dead) return;
+/* --- MAIN LOOP --- */
+function loop() {
+    if (gameState !== 'PLAYING') return;
 
-    // 1. Apply Gravity
+    // 1. Logic
     player.dy += GRAVITY;
     player.y += player.dy;
-
-    // 2. Floor Logic
-    if (player.y >= GROUND_Y - player.h) {
-        player.y = GROUND_Y - player.h;
+    
+    // Floor
+    if (player.y > floorY - 50) {
+        player.y = floorY - 50;
         player.dy = 0;
         player.grounded = true;
-        // Snap rotation
-        player.angle = Math.round(player.angle / 90) * 90; 
+        player.angle = Math.round(player.angle/90)*90;
     } else {
         player.grounded = false;
-        player.angle += ROTATION_SPEED;
+        player.angle += 6;
     }
 
-    // 3. Move Camera & Player
     player.x += SPEED;
-    cameraX = player.x - 200; // Keep player at x=200 relative to screen
-    score = Math.floor(player.x / 100);
-    scoreEl.innerText = `Score: ${score} | Attempt: ${attempts}`;
+    camX = player.x - 300;
 
-    // 4. Object Collision
-    // Only check tiles near the player to save performance
-    let startCol = Math.floor(cameraX / TILE_SIZE);
-    let endCol = startCol + (canvas.width / TILE_SIZE) + 2;
+    // Progress Bar
+    let pct = Math.min(100, (player.x / (currentLevel.length * 60)) * 100);
+    document.getElementById('progress-fill').style.width = pct + '%';
 
-    for (let i = startCol; i < endCol; i++) {
-        let tile = levelMap[i];
-        if (!tile) continue;
+    // Collision
+    let playerRect = {x: player.x - 20, y: player.y - 20, w: 40, h: 40};
+    let startCol = Math.floor(camX / 60);
+    let endCol = startCol + (canvas.width / 60) + 1;
 
-        let tileX = i * TILE_SIZE;
-        let tileY = GROUND_Y - TILE_SIZE; 
-        
-        // Hitbox Logic
-        let hitBox = { x: tileX + 10, y: tileY + 10, w: 20, h: 20 }; // Generous hitboxes
+    for(let i=startCol; i<endCol; i++) {
+        let tile = currentLevel[i];
+        if(!tile) continue;
 
-        if (tile === 1) { // Block
-             // Simple block collision (Death on impact for this demo, or ride top)
-            if (checkCollision(player, {x: tileX, y: tileY, w: TILE_SIZE, h: TILE_SIZE})) {
-                // If falling onto it, land. If hitting side, die.
-                if (player.y + player.h < tileY + 15 && player.dy > 0) {
-                    player.y = tileY - player.h;
-                    player.dy = 0;
-                    player.grounded = true;
-                    player.angle = Math.round(player.angle / 90) * 90;
-                } else {
-                    die();
-                }
+        let tx = i * 60;
+        let ty = floorY - 60;
+
+        // Block
+        if(tile === 1) {
+            if (player.x + 20 > tx && player.x - 20 < tx + 60 && player.y + 20 > ty && player.y - 20 < ty + 60) {
+               // Basic die on impact
+               die();
             }
         }
-        
-        if (tile === 2) { // Spike
-            // Triangle Hitbox is smaller than visual
-            if (checkCollision(player, {x: tileX + 10, y: tileY + 15, w: 20, h: 25})) {
+        // Spike
+        if(tile === 2) {
+            if (player.x + 10 > tx + 20 && player.x - 10 < tx + 40 && player.y + 20 > ty + 30) {
                 die();
             }
         }
     }
-}
 
-// --- RENDERING ---
-function drawPlayer() {
-    ctx.save();
-    ctx.translate(player.x - cameraX + player.w/2, player.y + player.h/2);
-    ctx.rotate(player.angle * Math.PI / 180);
-    
-    // Embedded Texture: The Classic Icon
-    ctx.fillStyle = '#FFEB3B'; // Yellow Body
-    ctx.fillRect(-player.w/2, -player.h/2, player.w, player.h);
-    
-    ctx.strokeStyle = 'black';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(-player.w/2, -player.h/2, player.w, player.h);
-
-    // The Face
-    ctx.fillStyle = '#000'; // Eye
-    ctx.fillRect(2, -5, 8, 8);
-    ctx.restore();
-}
-
-function drawEnvironment() {
+    // 2. Draw
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Background Gradient (Procedural)
-    let bgGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    bgGradient.addColorStop(0, '#1E88E5');
-    bgGradient.addColorStop(1, '#1565C0');
-    ctx.fillStyle = bgGradient;
+    
+    // Background
+    let bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    bg.addColorStop(0, '#1a2a6c');
+    bg.addColorStop(1, '#b21f1f');
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Floor Line
-    ctx.fillStyle = '#0D47A1';
-    ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
-    ctx.strokeStyle = '#FFF';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, GROUND_Y);
-    ctx.lineTo(canvas.width, GROUND_Y);
-    ctx.stroke();
+    // Floor
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, floorY, canvas.width, canvas.height - floorY);
+    ctx.strokeStyle = '#fff';
+    ctx.beginPath(); ctx.moveTo(0, floorY); ctx.lineTo(canvas.width, floorY); ctx.stroke();
 
-    // Draw Level
-    let startCol = Math.floor(cameraX / TILE_SIZE);
-    let endCol = startCol + (canvas.width / TILE_SIZE) + 1;
+    // Level
+    for(let i=startCol; i<endCol; i++) {
+        let tile = currentLevel[i];
+        if(!tile) continue;
+        let tx = (i * 60) - camX;
+        let ty = floorY - 60;
 
-    for (let i = startCol; i < endCol; i++) {
-        let tile = levelMap[i];
-        if (!tile) continue;
-
-        let x = (i * TILE_SIZE) - cameraX;
-        let y = GROUND_Y - TILE_SIZE;
-
-        if (tile === 1) { // Block Texture
-            ctx.fillStyle = '#000';
-            ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-            ctx.fillStyle = '#2196F3'; // Inner Color
-            ctx.fillRect(x+2, y+2, TILE_SIZE-4, TILE_SIZE-4);
-        }
-        if (tile === 2) { // Spike Texture
+        if(tile === 1) { // Block
+            ctx.fillStyle = '#000'; ctx.fillRect(tx, ty, 60, 60);
+            ctx.strokeStyle = '#0ff'; ctx.strokeRect(tx, ty, 60, 60);
+        } 
+        else if(tile === 2) { // Spike
             ctx.beginPath();
-            ctx.moveTo(x, y + TILE_SIZE);
-            ctx.lineTo(x + TILE_SIZE/2, y);
-            ctx.lineTo(x + TILE_SIZE, y + TILE_SIZE);
-            ctx.fillStyle = '#212121';
-            ctx.fill();
-            ctx.strokeStyle = '#FFF';
-            ctx.lineWidth = 1;
-            ctx.stroke();
+            ctx.moveTo(tx, ty + 60);
+            ctx.lineTo(tx + 30, ty);
+            ctx.lineTo(tx + 60, ty + 60);
+            ctx.fillStyle = '#111'; ctx.fill();
+            ctx.strokeStyle = '#fff'; ctx.stroke();
         }
     }
+
+    // Player
+    renderIcon(ctx, player.x - camX, player.y + 25, 50, player.angle, userIcon.col1, userIcon.col2);
+
+    requestAnimationFrame(loop);
 }
 
-function gameLoop() {
-    update();
-    drawEnvironment();
-    drawPlayer();
-    if (gameActive) requestAnimationFrame(gameLoop);
+function die() {
+    gameState = 'DEAD';
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    setTimeout(() => {
+        player.x = 200;
+        player.y = floorY - 50;
+        camX = 0;
+        player.dy = 0;
+        gameState = 'PLAYING';
+        loop();
+    }, 500);
 }
+
+// Start on Main Menu
+initColorPickers();
