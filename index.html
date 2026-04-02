@@ -3,74 +3,454 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Geometry Dash v2</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Geometry Dash Web Edition</title>
+    <style>
+        /* --- CSS STYLES --- */
+        body {
+            margin: 0;
+            background: #000;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            user-select: none;
+        }
+
+        /* Game Layer */
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0; left: 0;
+            z-index: 1;
+        }
+
+        /* UI Layer */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: 10;
+            pointer-events: none; /* Clicks pass through to game */
+        }
+
+        /* Screens */
+        .screen {
+            position: absolute;
+            width: 100%; height: 100%;
+            display: none; /* Hidden by default */
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(circle, #003B73 0%, #000000 100%);
+            pointer-events: auto; /* Re-enable clicks for menus */
+        }
+        .screen.active { display: flex; }
+
+        /* Logo */
+        .logo-img {
+            max-width: 600px;
+            width: 80%;
+            margin-bottom: 30px;
+            filter: drop-shadow(0 0 20px rgba(0,255,255,0.4));
+            animation: float 3s ease-in-out infinite;
+        }
+        /* Fallback if image is missing */
+        .logo-text {
+            font-size: 60px; font-weight: 900; color: #FFFF00;
+            text-shadow: 4px 4px 0 #000, 0 0 20px #FF0000;
+            font-family: monospace; margin-bottom: 30px;
+            display: none;
+        }
+
+        /* Buttons */
+        button {
+            border: none;
+            color: white;
+            font-weight: 900;
+            cursor: pointer;
+            box-shadow: 0 6px 0 rgba(0,0,0,0.5);
+            transition: transform 0.1s;
+            text-transform: uppercase;
+        }
+        button:active { transform: translateY(4px); box-shadow: 0 2px 0 rgba(0,0,0,0.5); }
+
+        .btn-play {
+            width: 120px; height: 120px;
+            background: url('https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Play_Symbol.svg/1200px-Play_Symbol.svg.png') no-repeat center center;
+            background-size: 60%;
+            background-color: #00FF00;
+            border-radius: 50%;
+            border: 4px solid #fff;
+        }
+        
+        .btn-icon {
+            width: 80px; height: 80px;
+            background: #FFC107;
+            border-radius: 10px;
+            margin: 0 20px;
+            font-size: 40px;
+        }
+
+        .row { display: flex; align-items: center; margin-top: 20px; }
+
+        /* Level Select Styles */
+        .level-grid { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+        .level-card {
+            width: 200px; height: 140px;
+            background: rgba(0,0,0,0.6);
+            border: 3px solid #fff;
+            border-radius: 15px;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .level-card:hover { transform: scale(1.1); background: rgba(255,255,255,0.1); }
+        .diff-face { font-size: 40px; margin-bottom: 10px; }
+
+        /* Icon Kit Styles */
+        .color-row { display: flex; gap: 5px; margin: 10px 0; }
+        .swatch { width: 40px; height: 40px; border: 2px solid #fff; cursor: pointer; }
+        #preview-box { 
+            width: 100px; height: 100px; 
+            border: 4px solid #fff; 
+            background: #222; 
+            margin-bottom: 20px;
+        }
+
+        /* HUD */
+        #hud { display: none; width: 100%; height: 100%; pointer-events: none; }
+        .progress-container {
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+            width: 60%; height: 15px; background: rgba(0,0,0,0.5);
+            border: 2px solid #fff; border-radius: 10px; overflow: hidden;
+        }
+        #progress-bar { width: 0%; height: 100%; background: #00FF00; }
+        
+        .btn-back {
+            position: absolute; top: 20px; left: 20px;
+            background: #F44336; padding: 10px 30px; font-size: 20px; border-radius: 8px;
+        }
+
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }
+    </style>
 </head>
 <body>
 
-    <!-- Game Layer -->
+    <!-- GAME CANVAS -->
     <canvas id="gameCanvas"></canvas>
 
-    <!-- UI Layer -->
+    <!-- UI OVERLAY -->
     <div id="ui-layer">
         
-        <!-- 1. Main Menu -->
-        <div id="menu-main" class="menu-screen active">
-            <img src="logo.png" class="logo" alt="Geometry Dash">
-            <div class="btn-row">
-                <button onclick="showScreen('menu-levels')" class="btn-large">PLAY</button>
-                <button onclick="showScreen('menu-icons')" class="btn-icon">
-                    <div class="icon-preview-btn"></div>
-                </button>
-            </div>
-        </div>
-
-        <!-- 2. Level Select -->
-        <div id="menu-levels" class="menu-screen">
-            <h2>SELECT LEVEL</h2>
-            <div class="level-grid">
-                <div class="level-card" onclick="loadLevel(0)">
-                    <div class="level-title">Stereo Madness</div>
-                    <div class="level-diff difficulty-easy">EASY</div>
-                </div>
-                <div class="level-card" onclick="loadLevel(1)">
-                    <div class="level-title">Back on Track</div>
-                    <div class="level-diff difficulty-med">NORMAL</div>
-                </div>
-                <div class="level-card" onclick="loadLevel(2)">
-                    <div class="level-title">Polargeist</div>
-                    <div class="level-diff difficulty-hard">HARD</div>
-                </div>
-            </div>
-            <button onclick="showScreen('menu-main')" class="btn-back">BACK</button>
-        </div>
-
-        <!-- 3. Icon Kit -->
-        <div id="menu-icons" class="menu-screen">
-            <h2>ICON KIT</h2>
+        <!-- 1. MAIN MENU -->
+        <div id="menu-main" class="screen active">
+            <!-- Logo Logic: Tries to load image, falls back to text -->
+            <img src="logo.png" class="logo-img" onerror="this.style.display='none'; document.querySelector('.logo-text').style.display='block';">
+            <div class="logo-text">GEOMETRY DASH</div>
             
-            <div class="kit-display">
-                <canvas id="previewCanvas" width="100" height="100"></canvas>
+            <div class="row">
+                <button class="btn-icon" onclick="showScreen('menu-skin')">👕</button>
+                <button class="btn-play" onclick="showScreen('menu-level')"></button>
+                <button class="btn-icon" onclick="window.open('https://github.com')">🐙</button>
             </div>
-
-            <div class="color-picker">
-                <h3>Color 1</h3>
-                <div class="swatches" id="col1-swatches"></div>
-                <h3>Color 2</h3>
-                <div class="swatches" id="col2-swatches"></div>
-            </div>
-
-            <button onclick="showScreen('menu-main')" class="btn-back">BACK</button>
         </div>
 
-        <!-- 4. Game HUD -->
-        <div id="hud" class="hidden">
-            <div id="progress-bar"><div id="progress-fill"></div></div>
-            <button onclick="quitGame()" class="btn-pause">||</button>
+        <!-- 2. LEVEL SELECT -->
+        <div id="menu-level" class="screen">
+            <h1 style="color:white">SELECT LEVEL</h1>
+            <div class="level-grid">
+                <div class="level-card" onclick="startLevel(0)">
+                    <div class="diff-face">🙂</div>
+                    <div style="color:#00FF00; font-weight:bold">STEREO MADNESS</div>
+                </div>
+                <div class="level-card" onclick="startLevel(1)">
+                    <div class="diff-face">😐</div>
+                    <div style="color:#FFFF00; font-weight:bold">BACK ON TRACK</div>
+                </div>
+                <div class="level-card" onclick="startLevel(2)">
+                    <div class="diff-face">👿</div>
+                    <div style="color:#FF0000; font-weight:bold">POLARGEIST</div>
+                </div>
+            </div>
+            <button class="btn-back" onclick="showScreen('menu-main')">BACK</button>
         </div>
 
+        <!-- 3. ICON KIT -->
+        <div id="menu-skin" class="screen">
+            <h1 style="color:white">ICON KIT</h1>
+            <canvas id="preview-box" width="100" height="100"></canvas>
+            
+            <h3 style="color:white; margin:0">Color 1</h3>
+            <div class="color-row" id="c1-row"></div>
+            
+            <h3 style="color:white; margin:0">Color 2</h3>
+            <div class="color-row" id="c2-row"></div>
+
+            <button class="btn-back" onclick="showScreen('menu-main')">BACK</button>
+        </div>
+
+        <!-- 4. HUD (In Game) -->
+        <div id="hud">
+            <div class="progress-container">
+                <div id="progress-bar"></div>
+            </div>
+            <button class="btn-back" style="width:50px; padding:10px;" onclick="quitGame()">||</button>
+        </div>
     </div>
 
-    <script src="game.js"></script>
+    <script>
+        /* --- JAVASCRIPT ENGINE --- */
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Configuration
+        const GRAVITY = 0.65;
+        const JUMP = -10.5;
+        const SPEED = 6.5;
+        const TILE = 50;
+        
+        // State
+        let gameState = 'MENU'; // MENU, PLAYING, DEAD
+        let frame = 0;
+        let cameraX = 0;
+        let floorY = 0;
+        let attempt = 1;
+
+        // Player
+        let p = { x: 200, y: 0, w: 40, h: 40, dy: 0, ang: 0, ground: false, dead: false };
+        
+        // Customization
+        let skin = { c1: '#FFFF00', c2: '#0000FF' };
+        const COLORS = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#00FFFF', '#FF00FF', '#FFFFFF', '#111111'];
+
+        // Levels (0=Air, 1=Block, 2=Spike)
+        const LEVELS = [
+            [0,0,0,0,0,1,0,0,2,0,0,0,1,1,0,0,2,2,0,0,0,1,0,1,0,2,0,0,1,1,2,0,0,1], // Easy
+            [0,0,0,1,0,2,0,1,2,1,0,0,2,2,2,0,1,0,1,2,1,2,1,2,0,0,1,0,0,2,2,1,0], // Med
+            [0,0,0,0,2,0,2,0,1,2,1,2,0,0,2,2,0,1,1,2,0,2,0,1,0,2,2,2,1,0,1,2,1]  // Hard
+        ];
+        let currentLevel = [];
+
+        // --- INITIALIZATION ---
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            floorY = canvas.height - 150;
+            if(gameState === 'MENU') drawMenuBackground();
+        }
+        window.addEventListener('resize', resize);
+        
+        function init() {
+            resize();
+            setupIconKit();
+            drawMenuBackground(); // Draw background immediately so it's not black
+        }
+
+        // --- MENU SYSTEM ---
+        function showScreen(id) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            gameState = 'MENU';
+        }
+
+        function setupIconKit() {
+            const c1Box = document.getElementById('c1-row');
+            const c2Box = document.getElementById('c2-row');
+            const pCtx = document.getElementById('preview-box').getContext('2d');
+
+            COLORS.forEach(c => {
+                let b1 = document.createElement('div');
+                b1.className = 'swatch'; b1.style.background = c;
+                b1.onclick = () => { skin.c1 = c; updatePreview(pCtx); };
+                c1Box.appendChild(b1);
+
+                let b2 = document.createElement('div');
+                b2.className = 'swatch'; b2.style.background = c;
+                b2.onclick = () => { skin.c2 = c; updatePreview(pCtx); };
+                c2Box.appendChild(b2);
+            });
+            updatePreview(pCtx);
+        }
+
+        function updatePreview(ctxToDraw) {
+            ctxToDraw.clearRect(0,0,100,100);
+            // Draw Icon Scaled Up
+            ctxToDraw.save();
+            ctxToDraw.translate(50, 50);
+            ctxToDraw.scale(1.5, 1.5);
+            drawPlayerIcon(ctxToDraw, 0, 0, 40, 0);
+            ctxToDraw.restore();
+        }
+
+        // --- GAME ENGINE ---
+        function startLevel(idx) {
+            currentLevel = LEVELS[idx];
+            // Extend level
+            while(currentLevel.length < 200) currentLevel.push(0);
+            
+            // Reset Player
+            p.x = 200; 
+            p.y = floorY - p.h; 
+            p.dy = 0; 
+            p.ang = 0; 
+            p.dead = false;
+            cameraX = 0;
+            
+            // UI
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById('hud').style.display = 'block';
+            
+            gameState = 'PLAYING';
+            loop();
+        }
+
+        function quitGame() {
+            gameState = 'MENU';
+            document.getElementById('hud').style.display = 'none';
+            showScreen('menu-main');
+        }
+
+        // Inputs
+        window.addEventListener('mousedown', () => { if(gameState === 'PLAYING') jump(); });
+        window.addEventListener('keydown', (e) => { 
+            if(e.code === 'Space' || e.code === 'ArrowUp') {
+                if(gameState === 'PLAYING') jump();
+            }
+        });
+
+        function jump() {
+            if(p.ground) { p.dy = JUMP; p.ground = false; }
+        }
+
+        function die() {
+            p.dead = true;
+            attempt++;
+            
+            // Flash Effect
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0,0,canvas.width,canvas.height);
+            
+            setTimeout(() => {
+                p.x = 200; p.y = floorY - p.h; p.dy = 0; p.ang = 0; cameraX = 0; p.dead = false;
+                loop();
+            }, 500);
+        }
+
+        function drawPlayerIcon(c, x, y, s, ang) {
+            c.save();
+            c.translate(x, y);
+            c.rotate(ang * Math.PI/180);
+            
+            // Body
+            c.fillStyle = skin.c1;
+            c.fillRect(-s/2, -s/2, s, s);
+            c.strokeStyle = 'black';
+            c.lineWidth = 2;
+            c.strokeRect(-s/2, -s/2, s, s);
+            
+            // Detail
+            c.fillStyle = skin.c2;
+            c.fillRect(-s/4, -s/4, s/2, s/2);
+            
+            c.restore();
+        }
+
+        function drawMenuBackground() {
+            let grad = ctx.createLinearGradient(0,0,0,canvas.height);
+            grad.addColorStop(0, '#003B73');
+            grad.addColorStop(1, '#000');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0,0,canvas.width, canvas.height);
+        }
+
+        function loop() {
+            if(gameState !== 'PLAYING') return;
+            if(p.dead) return;
+
+            // 1. Physics
+            p.dy += GRAVITY;
+            p.y += p.dy;
+            p.x += SPEED;
+            cameraX = p.x - 200;
+
+            // Floor Collision
+            if(p.y > floorY - p.h) {
+                p.y = floorY - p.h;
+                p.dy = 0;
+                p.ground = true;
+                p.ang = Math.round(p.ang / 90) * 90;
+            } else {
+                p.ground = false;
+                p.ang += 5;
+            }
+
+            // 2. Level Collision
+            let startCol = Math.floor(cameraX / TILE);
+            let endCol = startCol + (canvas.width / TILE) + 1;
+
+            for(let i=startCol; i<endCol; i++) {
+                let type = currentLevel[i];
+                if(!type) continue;
+
+                let tx = i * TILE;
+                let ty = floorY - TILE;
+
+                // Hitbox Check (Simple AABB)
+                if (p.x + p.w/2 > tx && p.x - p.w/2 < tx + TILE &&
+                    p.y + p.h/2 > ty && p.y - p.h/2 < ty + TILE) {
+                        die();
+                }
+            }
+
+            // 3. Rendering
+            ctx.clearRect(0,0,canvas.width, canvas.height);
+            
+            // Background
+            let bg = ctx.createLinearGradient(0,0,0,canvas.height);
+            bg.addColorStop(0, '#1a2a6c');
+            bg.addColorStop(1, '#b21f1f');
+            ctx.fillStyle = bg;
+            ctx.fillRect(0,0,canvas.width, canvas.height);
+
+            // Floor
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, floorY, canvas.width, canvas.height - floorY);
+            ctx.strokeStyle = '#fff';
+            ctx.beginPath(); ctx.moveTo(0, floorY); ctx.lineTo(canvas.width, floorY); ctx.stroke();
+
+            // Draw Level
+            for(let i=startCol; i<endCol; i++) {
+                let type = currentLevel[i];
+                if(!type) continue;
+                let dx = (i * TILE) - cameraX;
+                let dy = floorY - TILE;
+
+                if(type === 1) { // Block
+                    ctx.fillStyle = '#000'; ctx.fillRect(dx, dy, TILE, TILE);
+                    ctx.strokeStyle = '#0ff'; ctx.strokeRect(dx, dy, TILE, TILE);
+                }
+                if(type === 2) { // Spike
+                    ctx.beginPath();
+                    ctx.moveTo(dx, dy + TILE);
+                    ctx.lineTo(dx + TILE/2, dy);
+                    ctx.lineTo(dx + TILE, dy + TILE);
+                    ctx.fillStyle = '#000'; ctx.fill();
+                    ctx.strokeStyle = '#fff'; ctx.stroke();
+                }
+            }
+
+            // Draw Player
+            drawPlayerIcon(ctx, p.x - cameraX + p.w/2, p.y + p.h/2, p.w, p.ang);
+
+            // Progress Bar
+            let pct = (p.x / (currentLevel.length * TILE)) * 100;
+            document.getElementById('progress-bar').style.width = Math.min(100, pct) + '%';
+
+            requestAnimationFrame(loop);
+        }
+
+        // Boot
+        init();
+
+    </script>
 </body>
 </html>
